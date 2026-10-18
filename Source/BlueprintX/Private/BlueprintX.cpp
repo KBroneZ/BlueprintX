@@ -2,6 +2,8 @@
 
 #include "BlueprintX.h"
 
+DEFINE_LOG_CATEGORY(LogBlueprintX);
+
 #define LOCTEXT_NAMESPACE "FBlueprintXModule"
 
 void FBlueprintXModule::StartupModule()

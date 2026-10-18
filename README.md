@@ -5,11 +5,16 @@ area: place two corner markers and save everything between them as a blueprint. 
 collects the buildings itself, so it works on dedicated servers without hitting network
 message limits.
 
-**Status:** early development (0.1.0 is an empty skeleton). Not released yet.
+**Status:** early development. Not released yet.
+
+## Features
+
+- **Blueprint-X Corner** marker (0.2.0): build menu > Special > Blueprint Designers; costs
+  2 Iron Plates and is available from the start (no HUB milestone needed).
 
 ## Planned features
 
-- Corner marker buildable; the box between two markers becomes the blueprint area.
+- The box between two corner markers becomes the blueprint area.
 - Save from a small window (name, description, category) with a box preview.
 - Works in single player and on dedicated servers (Windows client, Linux server).
 
