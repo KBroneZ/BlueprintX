@@ -50,8 +50,9 @@ namespace
 		return FMath::Max(1, FMath::CeilToInt32(Length / BXSaver::CellSize - KINDA_SMALL_NUMBER));
 	}
 
-	FString ValidateRequest(const UWorld* World, const ABXCornerMarker* CornerA, const ABXCornerMarker* CornerB,
-		const FString& SafeName, AFGBlueprintSubsystem* BlueprintSubsystem)
+	/** Checks both corners and builds the area between them; returns an error message or "". */
+	FString MakeArea(const UWorld* World, const ABXCornerMarker* CornerA, const ABXCornerMarker* CornerB,
+		float RequestedExtraHeight, FBXArea& OutArea)
 	{
 		if (!IsValid(CornerA) || !IsValid(CornerB) || CornerA->GetWorld() != World || CornerB->GetWorld() != World)
 		{
@@ -61,6 +62,19 @@ namespace
 		{
 			return TEXT("Pick two different corner markers.");
 		}
+		const float ExtraHeight = FMath::IsFinite(RequestedExtraHeight)
+			? FMath::Clamp(RequestedExtraHeight, 0.0f, BXSaver::MaxExtraHeight) : 0.0f;
+		OutArea = FBXArea::FromCorners(*CornerA, *CornerB, ExtraHeight, BXSaver::BelowMargin);
+		const FVector AreaSize = OutArea.LocalBox.GetSize();
+		if (FMath::Max3(AreaSize.X, AreaSize.Y, AreaSize.Z) > BXSaver::MaxSideLength)
+		{
+			return FString::Printf(TEXT("The area is too big (max %.0f m per side)."), BXSaver::MaxSideLength / 100.0);
+		}
+		return FString();
+	}
+
+	FString ValidateName(const FString& SafeName, AFGBlueprintSubsystem* BlueprintSubsystem)
+	{
 		if (SafeName.IsEmpty())
 		{
 			return TEXT("The blueprint needs a name.");
@@ -93,21 +107,17 @@ FBXSaveResult FBXBlueprintSaver::SaveArea(UWorld* World, ABXCornerMarker* Corner
 	const double StartSeconds = FPlatformTime::Seconds();
 	AFGBlueprintSubsystem* BlueprintSubsystem = AFGBlueprintSubsystem::Get(World);
 	const FString SafeName = AFGBlueprintSubsystem::SanitizeBlueprintFileName(Request.BlueprintName.TrimStartAndEnd());
-	const FString Error = ValidateRequest(World, CornerA, CornerB, SafeName, BlueprintSubsystem);
+	FBXArea Area;
+	FString Error = MakeArea(World, CornerA, CornerB, Request.ExtraHeight, Area);
+	if (Error.IsEmpty())
+	{
+		Error = ValidateName(SafeName, BlueprintSubsystem);
+	}
 	if (!Error.IsEmpty())
 	{
 		return FBXSaveResult::Fail(Error);
 	}
 
-	const float ExtraHeight = FMath::IsFinite(Request.ExtraHeight)
-		? FMath::Clamp(Request.ExtraHeight, 0.0f, BXSaver::MaxExtraHeight) : 0.0f;
-	const FBXArea Area = FBXArea::FromCorners(*CornerA, *CornerB, ExtraHeight, BXSaver::BelowMargin);
-	const FVector AreaSize = Area.LocalBox.GetSize();
-	if (FMath::Max3(AreaSize.X, AreaSize.Y, AreaSize.Z) > BXSaver::MaxSideLength)
-	{
-		return FBXSaveResult::Fail(FString::Printf(TEXT("The area is too big (max %.0f m per side)."),
-			BXSaver::MaxSideLength / 100.0));
-	}
 	FBXCollection Collection = FBXAreaCollector::Collect(World, Area);
 	if (Collection.Buildables.IsEmpty())
 	{
@@ -154,4 +164,21 @@ FBXSaveResult FBXBlueprintSaver::SaveArea(UWorld* World, ABXCornerMarker* Corner
 		*FilePath, IFileManager::Get().FileSize(*FilePath), (FPlatformTime::Seconds() - StartSeconds) * 1000.0);
 
 	return {true, NumSaved, FString::Printf(TEXT("Blueprint saved: \"%s\", %d buildings."), *SafeName, NumSaved)};
+}
+
+FBXCountResult FBXBlueprintSaver::CountArea(UWorld* World, ABXCornerMarker* CornerA, ABXCornerMarker* CornerB,
+	float ExtraHeight)
+{
+	if (World == nullptr || World->GetNetMode() == NM_Client)
+	{
+		return FBXCountResult::Fail(TEXT("Buildings are counted by the server."));
+	}
+	FBXArea Area;
+	const FString Error = MakeArea(World, CornerA, CornerB, ExtraHeight, Area);
+	if (!Error.IsEmpty())
+	{
+		return FBXCountResult::Fail(Error);
+	}
+	const FBXAreaCount Count = FBXAreaCollector::Count(World, Area);
+	return {true, Count.NumBuildables, Count.NumExcluded, FString()};
 }

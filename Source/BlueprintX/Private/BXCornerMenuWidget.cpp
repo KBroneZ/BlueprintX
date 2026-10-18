@@ -3,8 +3,8 @@
 #include "BXCornerMenuWidget.h"
 
 #include "BlueprintX.h"
+#include "BXAdjustSubsystem.h"
 #include "BXAreaCollector.h"
-#include "BXBoxPreview.h"
 #include "BXCornerMarker.h"
 #include "BXRemoteCallObject.h"
 #include "Blueprint/WidgetTree.h"
@@ -22,12 +22,15 @@
 #include "EngineUtils.h"
 #include "FGHUD.h"
 #include "FGPlayerController.h"
+#include "Framework/Application/SlateApplication.h"
+#include "TimerManager.h"
 #include "UI/FGGameUI.h"
 
 namespace BXCornerMenu
 {
 	constexpr float CentimetersPerMeter = 100.0f;
-	constexpr float DefaultHeightMeters = 8.0f;
+	// Wait this long after the last change before asking the server for a new count.
+	constexpr float CountDelaySeconds = 0.4f;
 	constexpr float WindowWidth = 460.0f;
 	constexpr int32 TitleFontSize = 20;
 	constexpr int32 TextFontSize = 12;
@@ -39,12 +42,16 @@ namespace BXCornerMenu
 	const FLinearColor TextColor(0.9f, 0.9f, 0.9f);
 	const FLinearColor FieldTextColor = FLinearColor::Black;
 	const FLinearColor InfoColor(0.75f, 0.75f, 0.75f);
+	const FLinearColor CountColor(0.98f, 0.75f, 0.3f);
 	const FLinearColor SuccessColor(0.2f, 0.9f, 0.3f);
 	const FLinearColor ErrorColor(1.0f, 0.3f, 0.2f);
 }
 
 namespace
 {
+	// Shared by every window instance, so a late answer meant for a closed window never matches.
+	int32 GNextCountRequestId = 0;
+
 	UFGGameUI* FindGameUI(const APlayerController* Player)
 	{
 		const AFGHUD* HUD = Player != nullptr ? Cast<AFGHUD>(Player->GetHUD()) : nullptr;
@@ -73,6 +80,8 @@ void UBXCornerMenuWidget::Init_Implementation()
 {
 	Super::Init_Implementation();
 
+	ABXCornerMarker* UsedCorner = Cast<ABXCornerMarker>(mInteractObject);
+	mThisCorner = IsValid(UsedCorner) ? UsedCorner : nullptr;
 	if (GetThisCorner() == nullptr)
 	{
 		SetStatus(TEXT("This window must be opened from a Blueprint-X Corner."), BXCornerMenu::ErrorColor);
@@ -82,12 +91,43 @@ void UBXCornerMenuWidget::Init_Implementation()
 	{
 		// Init may run more than once; never keep two bindings.
 		RemoteCall->OnCreateResult.Remove(mResultHandle);
+		RemoteCall->OnCountResult.Remove(mCountHandle);
 		mBoundRemoteCall = RemoteCall;
 		mResultHandle = RemoteCall->OnCreateResult.AddUObject(this, &UBXCornerMenuWidget::OnCreateResult);
+		mCountHandle = RemoteCall->OnCountResult.AddUObject(this, &UBXCornerMenuWidget::OnCountResult);
 	}
 	RefreshCornerList();
+	RestoreAdjustValues();
 	RefreshPreview();
+	RequestCount();
 	SetDefaultFocusWidget(mNameBox);
+}
+
+void UBXCornerMenuWidget::RestoreAdjustValues()
+{
+	UBXAdjustSubsystem* AdjustSubsystem = UBXAdjustSubsystem::Get(this);
+	FBXWindowValues Values;
+	if (AdjustSubsystem == nullptr || !AdjustSubsystem->TakeAdjustValues(Values))
+	{
+		return;
+	}
+	mHeightBox->SetValue(Values.ExtraHeightMeters);
+	mNameBox->SetText(FText::FromString(Values.Name));
+	mDescriptionBox->SetText(FText::FromString(Values.Description));
+
+	// Same box as before when the player used one of its two corners (or pressed the key);
+	// a different marker starts a new box but keeps the text and the height.
+	const ABXCornerMarker* UsedCorner = GetThisCorner();
+	ABXCornerMarker* AdjustThis = Values.ThisCorner.Get();
+	ABXCornerMarker* AdjustOther = Values.OtherCorner.Get();
+	if (AdjustThis != nullptr && AdjustOther != nullptr && (UsedCorner == AdjustThis || UsedCorner == AdjustOther))
+	{
+		mThisCorner = AdjustThis;
+		// The game closes windows by interact object (e.g. when that marker is dismantled).
+		mInteractObject = AdjustThis;
+		RefreshCornerList();
+		SelectCorner(AdjustOther);
+	}
 }
 
 void UBXCornerMenuWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
@@ -100,8 +140,9 @@ void UBXCornerMenuWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaT
 	}
 	else if (mWasInGameUIStack)
 	{
-		// The game closed this window (Esc) but left it on screen.
-		CloseWindow();
+		// The game closed this window (Esc) but left it on screen. Esc may have opened another
+		// menu in the same frame, so leave the input mode to the game here.
+		CloseWindow(false);
 	}
 }
 
@@ -110,13 +151,22 @@ void UBXCornerMenuWidget::NativeDestruct()
 	if (UBXRemoteCallObject* RemoteCall = mBoundRemoteCall.Get())
 	{
 		RemoteCall->OnCreateResult.Remove(mResultHandle);
+		RemoteCall->OnCountResult.Remove(mCountHandle);
 	}
 	mBoundRemoteCall.Reset();
-	if (IsValid(mPreview))
+	if (const UWorld* World = GetWorld())
 	{
-		mPreview->Destroy();
+		World->GetTimerManager().ClearTimer(mCountTimer);
 	}
-	mPreview = nullptr;
+	// Closed for good (Close, Esc, or the game closing every window): the box goes away too.
+	// Hidden for adjust mode: the box stays.
+	if (!mIsEnteringAdjustMode)
+	{
+		if (UBXAdjustSubsystem* AdjustSubsystem = UBXAdjustSubsystem::Get(this))
+		{
+			AdjustSubsystem->EndSession();
+		}
+	}
 	Super::NativeDestruct();
 }
 
@@ -150,21 +200,15 @@ void UBXCornerMenuWidget::BuildLayout()
 	AddHeightRow(Rows);
 	mBoxSizeText = AddLabel(Rows, FString());
 	mBoxSizeText->SetColorAndOpacity(FSlateColor(InfoColor));
+	mCountText = AddLabel(Rows, FString());
+	mCountText->SetColorAndOpacity(FSlateColor(CountColor));
 
 	AddLabel(Rows, TEXT("Name"));
 	mNameBox = AddTextBox(Rows, TEXT("Blueprint name"));
 	AddLabel(Rows, TEXT("Description (optional)"));
 	mDescriptionBox = AddTextBox(Rows, FString());
 
-	UHorizontalBox* Buttons = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("Buttons"));
-	mSaveButton = MakeButton(TEXT("Save blueprint"));
-	mSaveButton->OnClicked.AddDynamic(this, &UBXCornerMenuWidget::OnSaveClicked);
-	Buttons->AddChildToHorizontalBox(mSaveButton)->SetPadding(ButtonGap);
-	mCloseButton = MakeButton(TEXT("Close"));
-	mCloseButton->OnClicked.AddDynamic(this, &UBXCornerMenuWidget::OnCloseClicked);
-	Buttons->AddChildToHorizontalBox(mCloseButton);
-	Rows->AddChildToVerticalBox(Buttons)->SetPadding(FMargin(0.0f, 12.0f, 0.0f, 4.0f));
-
+	AddButtonRow(Rows);
 	mStatusText = AddLabel(Rows, FString());
 }
 
@@ -181,13 +225,35 @@ void UBXCornerMenuWidget::AddHeightRow(UVerticalBox* Parent)
 	mHeightBox->SetDelta(1.0f);
 	mHeightBox->SetMinFractionalDigits(0);
 	mHeightBox->SetMaxFractionalDigits(0);
-	mHeightBox->SetValue(DefaultHeightMeters);
+	mHeightBox->SetValue(FBXWindowValues::DefaultExtraHeightMeters);
 	FSlateFontInfo Font = mHeightBox->GetFont();
 	Font.Size = TextFontSize;
 	mHeightBox->SetFont(Font);
 	mHeightBox->SetForegroundColor(FSlateColor(FieldTextColor));
 	mHeightBox->OnValueChanged.AddDynamic(this, &UBXCornerMenuWidget::OnHeightChanged);
 	Parent->AddChildToVerticalBox(mHeightBox)->SetPadding(RowPadding);
+}
+
+void UBXCornerMenuWidget::AddButtonRow(UVerticalBox* Parent)
+{
+	using namespace BXCornerMenu;
+
+	UHorizontalBox* Buttons = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("Buttons"));
+	mSaveButton = MakeButton(TEXT("Save blueprint"));
+	mSaveButton->OnClicked.AddDynamic(this, &UBXCornerMenuWidget::OnSaveClicked);
+	Buttons->AddChildToHorizontalBox(mSaveButton)->SetPadding(ButtonGap);
+
+	mAdjustButton = MakeButton(TEXT("Adjust"));
+	mAdjustButton->SetToolTipText(FText::FromString(FString::Printf(
+		TEXT("Hide this window and look at the box. Page Up / Page Down change the extra height; %s or using a corner brings the window back."),
+		*UBXAdjustSubsystem::GetReopenKey().GetDisplayName().ToString())));
+	mAdjustButton->OnClicked.AddDynamic(this, &UBXCornerMenuWidget::OnAdjustClicked);
+	Buttons->AddChildToHorizontalBox(mAdjustButton)->SetPadding(ButtonGap);
+
+	mCloseButton = MakeButton(TEXT("Close"));
+	mCloseButton->OnClicked.AddDynamic(this, &UBXCornerMenuWidget::OnCloseClicked);
+	Buttons->AddChildToHorizontalBox(mCloseButton);
+	Parent->AddChildToVerticalBox(Buttons)->SetPadding(FMargin(0.0f, 12.0f, 0.0f, 4.0f));
 }
 
 UTextBlock* UBXCornerMenuWidget::AddLabel(UVerticalBox* Parent, const FString& Text)
@@ -267,37 +333,71 @@ void UBXCornerMenuWidget::RefreshCornerList()
 	mCornerList->SetSelectedIndex(0);
 }
 
+void UBXCornerMenuWidget::SelectCorner(const ABXCornerMarker* Corner)
+{
+	const int32 Index = mOtherCorners.IndexOfByPredicate(
+		[Corner](const TWeakObjectPtr<ABXCornerMarker>& Other) { return Other.Get() == Corner; });
+	if (Index != INDEX_NONE)
+	{
+		mCornerList->SetSelectedIndex(Index);
+	}
+}
+
 void UBXCornerMenuWidget::RefreshPreview()
 {
 	ABXCornerMarker* ThisCorner = GetThisCorner();
 	ABXCornerMarker* OtherCorner = GetSelectedCorner();
+	UBXAdjustSubsystem* AdjustSubsystem = UBXAdjustSubsystem::Get(this);
 	if (ThisCorner == nullptr || OtherCorner == nullptr)
 	{
 		mBoxSizeText->SetText(FText::GetEmpty());
-		if (IsValid(mPreview))
+		mCountText->SetText(FText::GetEmpty());
+		if (AdjustSubsystem != nullptr)
 		{
-			mPreview->SetActorHiddenInGame(true);
+			AdjustSubsystem->HidePreview();
 		}
 		return;
 	}
 
-	const float ExtraHeight = mHeightBox->GetValue() * BXCornerMenu::CentimetersPerMeter;
-	const FBXArea Area = FBXArea::FromCorners(*ThisCorner, *OtherCorner, ExtraHeight, FBXArea::DefaultBelowMargin);
-	const FVector Size = Area.LocalBox.GetSize() / BXCornerMenu::CentimetersPerMeter;
-	mBoxSizeText->SetText(FText::FromString(FString::Printf(TEXT("Box: %.0f x %.0f m, %.0f m high"),
-		Size.X, Size.Y, Size.Z)));
+	const float ExtraHeightMeters = mHeightBox->GetValue();
+	const FBXArea Area = FBXArea::FromCorners(*ThisCorner, *OtherCorner,
+		ExtraHeightMeters * BXCornerMenu::CentimetersPerMeter, FBXArea::DefaultBelowMargin);
+	mBoxSizeText->SetText(FText::FromString(Area.DescribeSize()));
+	if (AdjustSubsystem != nullptr)
+	{
+		AdjustSubsystem->ShowPreview(ThisCorner, OtherCorner, ExtraHeightMeters);
+	}
+}
 
-	if (!IsValid(mPreview))
+void UBXCornerMenuWidget::RequestCount()
+{
+	if (GetThisCorner() == nullptr || GetSelectedCorner() == nullptr)
 	{
-		FActorSpawnParameters Params;
-		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		mPreview = GetWorld()->SpawnActor<ABXBoxPreview>(Area.Frame.GetLocation(), FRotator::ZeroRotator, Params);
+		return;
 	}
-	if (IsValid(mPreview))
+	// Answers to older requests are ignored from now on.
+	mCountRequestId = ++GNextCountRequestId;
+	mCountText->SetText(FText::FromString(TEXT("Buildings inside: counting...")));
+	if (const UWorld* World = GetWorld())
 	{
-		mPreview->ShowArea(Area, ThisCorner->GetPreviewBeamMesh(), ThisCorner->GetMarkerMaterial());
-		mPreview->SetActorHiddenInGame(false);
+		World->GetTimerManager().SetTimer(mCountTimer, this, &UBXCornerMenuWidget::SendCountRequest,
+			BXCornerMenu::CountDelaySeconds, false);
 	}
+}
+
+void UBXCornerMenuWidget::SendCountRequest()
+{
+	UBXRemoteCallObject* RemoteCall = GetRemoteCall();
+	ABXCornerMarker* ThisCorner = GetThisCorner();
+	ABXCornerMarker* OtherCorner = GetSelectedCorner();
+	if (RemoteCall == nullptr || ThisCorner == nullptr || OtherCorner == nullptr)
+	{
+		mCountText->SetText(FText::GetEmpty());
+		return;
+	}
+	// Only two marker references and a number travel; the server does the counting (bug 001).
+	RemoteCall->Server_CountBuildables(ThisCorner, OtherCorner,
+		mHeightBox->GetValue() * BXCornerMenu::CentimetersPerMeter, mCountRequestId);
 }
 
 void UBXCornerMenuWidget::SetStatus(const FString& Message, const FLinearColor& Color)
@@ -308,7 +408,7 @@ void UBXCornerMenuWidget::SetStatus(const FString& Message, const FLinearColor& 
 
 ABXCornerMarker* UBXCornerMenuWidget::GetThisCorner() const
 {
-	ABXCornerMarker* Corner = Cast<ABXCornerMarker>(mInteractObject);
+	ABXCornerMarker* Corner = mThisCorner.Get();
 	return IsValid(Corner) ? Corner : nullptr;
 }
 
@@ -330,26 +430,54 @@ bool UBXCornerMenuWidget::IsInGameUIStack()
 	return GameUI != nullptr && GameUI->GetInteractWidgetStack().Contains(this);
 }
 
-void UBXCornerMenuWidget::CloseWindow()
+void UBXCornerMenuWidget::CloseWindow(bool bRestoreGameInput)
 {
 	UFGGameUI* GameUI = FindGameUI(GetOwningPlayer());
 	if (GameUI != nullptr && IsInGameUIStack())
 	{
-		// Gives the player back movement and the mouse, like Esc does.
-		GameUI->RemoveInteractWidget(this);
+		// Same path as Esc: the game UI pops the window and updates the player's input.
+		GameUI->PopWidget(this);
+		if (IsInGameUIStack())
+		{
+			GameUI->RemoveInteractWidget(this);
+		}
 	}
 	mWasInGameUIStack = false;
 	RemoveFromParent();
+	if (bRestoreGameInput)
+	{
+		RestoreGameInput();
+	}
+}
+
+void UBXCornerMenuWidget::RestoreGameInput()
+{
+	APlayerController* Player = GetOwningPlayer();
+	UFGGameUI* GameUI = FindGameUI(Player);
+	if (Player == nullptr || (GameUI != nullptr && GameUI->HasActiveInteractWidget()))
+	{
+		return;
+	}
+	// The clicked button kept the keyboard focus after the window was gone, so keys never
+	// reached the game until the pause menu (Esc twice) moved the focus back. Do it here.
+	Player->SetInputMode(FInputModeGameOnly());
+	Player->SetShowMouseCursor(false);
+	if (FSlateApplication::IsInitialized())
+	{
+		FSlateApplication::Get().SetAllUserFocusToGameViewport();
+	}
 }
 
 void UBXCornerMenuWidget::OnCornerSelected(FString SelectedItem, ESelectInfo::Type SelectionType)
 {
 	RefreshPreview();
+	RequestCount();
 }
 
 void UBXCornerMenuWidget::OnHeightChanged(float NewValue)
 {
 	RefreshPreview();
+	RequestCount();
 }
 
 void UBXCornerMenuWidget::OnSaveClicked()
@@ -383,6 +511,28 @@ void UBXCornerMenuWidget::OnSaveClicked()
 	RemoteCall->Server_CreateBlueprint(ThisCorner, OtherCorner, Request);
 }
 
+void UBXCornerMenuWidget::OnAdjustClicked()
+{
+	ABXCornerMarker* ThisCorner = GetThisCorner();
+	ABXCornerMarker* OtherCorner = GetSelectedCorner();
+	UBXAdjustSubsystem* AdjustSubsystem = UBXAdjustSubsystem::Get(this);
+	if (ThisCorner == nullptr || OtherCorner == nullptr || AdjustSubsystem == nullptr)
+	{
+		SetStatus(TEXT("Pick the other corner first."), BXCornerMenu::ErrorColor);
+		return;
+	}
+	FBXWindowValues Values;
+	Values.ThisCorner = ThisCorner;
+	Values.OtherCorner = OtherCorner;
+	Values.ExtraHeightMeters = mHeightBox->GetValue();
+	Values.Name = mNameBox->GetText().ToString();
+	Values.Description = mDescriptionBox->GetText().ToString();
+	AdjustSubsystem->BeginAdjust(GetOwningPlayer(), Values);
+
+	mIsEnteringAdjustMode = true;
+	CloseWindow();
+}
+
 void UBXCornerMenuWidget::OnCloseClicked()
 {
 	CloseWindow();
@@ -392,4 +542,26 @@ void UBXCornerMenuWidget::OnCreateResult(bool bSuccess, int32 NumBuildables, con
 {
 	mSaveButton->SetIsEnabled(true);
 	SetStatus(Message, bSuccess ? BXCornerMenu::SuccessColor : BXCornerMenu::ErrorColor);
+}
+
+void UBXCornerMenuWidget::OnCountResult(int32 RequestId, int32 NumBuildables, int32 NumExcluded, const FString& Message)
+{
+	if (RequestId != mCountRequestId)
+	{
+		return;
+	}
+	FString Text;
+	if (NumBuildables == INDEX_NONE)
+	{
+		Text = FString::Printf(TEXT("Buildings inside: unknown (%s)"), *Message);
+	}
+	else
+	{
+		Text = FString::Printf(TEXT("Buildings inside: %d"), NumBuildables);
+		if (NumExcluded > 0)
+		{
+			Text += FString::Printf(TEXT(" (%d more can never be in a blueprint: HUB, elevators, designers...)"), NumExcluded);
+		}
+	}
+	mCountText->SetText(FText::FromString(Text));
 }

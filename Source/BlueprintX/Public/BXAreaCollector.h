@@ -28,6 +28,9 @@ struct BLUEPRINTX_API FBXArea
 		float ExtraHeight, float BelowMargin);
 
 	bool ContainsWorldLocation(const FVector& WorldLocation) const;
+
+	/** "Box: 6 x 2 m, 10 m high", for the window and the adjust mode banner. */
+	FString DescribeSize() const;
 };
 
 /** Lightweight buildable that was turned into a temporary actor for the blueprint writer. */
@@ -51,11 +54,25 @@ struct BLUEPRINTX_API FBXCollection
 	void Release(UWorld* World);
 };
 
+/** How many buildables an area holds, without spawning anything. */
+struct FBXAreaCount
+{
+	/** Buildables a save of this area would contain. */
+	int32 NumBuildables = 0;
+
+	/** Buildables inside that a blueprint never contains (markers, HUB, elevators, ...). */
+	int32 NumExcluded = 0;
+};
+
 /** Server-side helper: finds every buildable whose pivot is inside an area. */
 class BLUEPRINTX_API FBXAreaCollector
 {
 public:
 	static FBXCollection Collect(UWorld* World, const FBXArea& Area);
+
+	/** Same selection as Collect, but only counts (cheap: lightweights are not spawned). Can be
+	 *  higher than a save if the game fails to spawn the temporary of a lightweight (rare). */
+	static FBXAreaCount Count(UWorld* World, const FBXArea& Area);
 
 	/** True for buildables a blueprint must never contain (markers, HUB, elevators, designers...). */
 	static bool IsExcluded(UWorld* World, const AFGBuildable* Buildable);
