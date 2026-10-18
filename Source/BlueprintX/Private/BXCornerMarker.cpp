@@ -8,12 +8,9 @@
 
 namespace BXCorner
 {
-	// Sizes in cm. The meshes are 1 m engine cubes centred on their origin, scaled in place.
-	constexpr float CubeSize = 100.0f;
-	constexpr float BaseWidth = 100.0f;
-	constexpr float BaseHeight = 20.0f;
-	constexpr float PoleWidth = 20.0f;
-	constexpr float PoleHeight = 300.0f;
+	// Sizes in cm; must match SourceArt/Marker/build_corner_marker.py.
+	constexpr float FootprintWidth = 100.0f;
+	constexpr float MarkerHeight = 300.0f;
 	// Keeps the clearance box just above the surface the marker stands on.
 	constexpr float ClearanceGap = 1.0f;
 }
@@ -29,31 +26,18 @@ ABXCornerMarker::ABXCornerMarker()
 	mIsUseable = true;
 	mInteractWidgetSoftClass = UBXCornerMenuWidget::StaticClass();
 
-	mBaseMesh = CreateDefaultSubobject<UFGColoredInstanceMeshProxy>(TEXT("BaseMesh"));
-	mBaseMesh->SetupAttachment(RootComponent);
-	mBaseMesh->SetMobility(EComponentMobility::Static);
-	mBaseMesh->SetRelativeLocation(FVector(0.0f, 0.0f, BaseHeight * 0.5f));
-	mBaseMesh->SetRelativeScale3D(FVector(BaseWidth, BaseWidth, BaseHeight) / CubeSize);
-
-	mPoleMesh = CreateDefaultSubobject<UFGColoredInstanceMeshProxy>(TEXT("PoleMesh"));
-	mPoleMesh->SetupAttachment(RootComponent);
-	mPoleMesh->SetMobility(EComponentMobility::Static);
-	mPoleMesh->SetRelativeLocation(FVector(0.0f, 0.0f, BaseHeight + PoleHeight * 0.5f));
-	mPoleMesh->SetRelativeScale3D(FVector(PoleWidth, PoleWidth, PoleHeight) / CubeSize);
+	mMarkerMesh = CreateDefaultSubobject<UFGColoredInstanceMeshProxy>(TEXT("MarkerMesh"));
+	mMarkerMesh->SetupAttachment(RootComponent);
+	mMarkerMesh->SetMobility(EComponentMobility::Static);
 
 	FFGClearanceData Clearance;
 	Clearance.ClearanceBox = FBox(
-		FVector(-BaseWidth * 0.5f, -BaseWidth * 0.5f, ClearanceGap),
-		FVector(BaseWidth * 0.5f, BaseWidth * 0.5f, BaseHeight + PoleHeight));
+		FVector(-FootprintWidth * 0.5f, -FootprintWidth * 0.5f, ClearanceGap),
+		FVector(FootprintWidth * 0.5f, FootprintWidth * 0.5f, MarkerHeight));
 	mClearanceData.Add(Clearance);
-}
-
-UStaticMesh* ABXCornerMarker::GetMarkerMesh() const
-{
-	return mBaseMesh != nullptr ? mBaseMesh->GetStaticMesh() : nullptr;
 }
 
 UMaterialInterface* ABXCornerMarker::GetMarkerMaterial() const
 {
-	return mBaseMesh != nullptr ? mBaseMesh->GetMaterial(0) : nullptr;
+	return mMarkerMesh != nullptr ? mMarkerMesh->GetMaterial(0) : nullptr;
 }

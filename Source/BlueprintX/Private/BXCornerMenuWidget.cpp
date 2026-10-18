@@ -295,7 +295,7 @@ void UBXCornerMenuWidget::RefreshPreview()
 	}
 	if (IsValid(mPreview))
 	{
-		mPreview->ShowArea(Area, ThisCorner->GetMarkerMesh(), ThisCorner->GetMarkerMaterial());
+		mPreview->ShowArea(Area, ThisCorner->GetPreviewBeamMesh(), ThisCorner->GetMarkerMaterial());
 		mPreview->SetActorHiddenInGame(false);
 	}
 }

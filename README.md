@@ -11,6 +11,8 @@ message limits.
 
 - **Blueprint-X Corner** marker (0.2.0): build menu > Special > Blueprint Designers; costs
   2 Iron Plates and is available from the start (no HUB milestone needed).
+  Since 0.5.0 it is a 3 m orange post with a diamond beacon on a 1 m base, with floor arrows
+  in all four directions (the box can grow from a corner either way).
 - **Save window** (0.4.0): interact (`E`) with a Corner, pick the other corner (nearest first),
   set the extra height, name and description, and save. A box outline shows the area.
 - The server collects and saves the buildings; tested in single player and on a Linux
@@ -37,6 +39,12 @@ Satisfactory Mod Manager does not know this mod yet and may remove it when it sy
 Set up the Satisfactory modding environment (https://docs.ficsit.app), place this folder in
 `<SatisfactoryModLoader>/Mods/GameFeatures/BlueprintX`, build the editor and package with
 Alpakit.
+
+The marker model is made in Blender by a script, so it can be rebuilt at any time:
+`blender -b --factory-startup --python SourceArt/Marker/build_corner_marker.py` writes
+`SM_BXCornerPost.blend` and `SM_BXCornerPost.fbx` next to the script; the FBX is then
+imported into `/BlueprintX/Buildings/Corner` (mesh `SM_BXCornerPost`, slots `M_BXCorner`
+and `M_BXCornerDark`, `UCX_` boxes as collision).
 
 ## Credits
 
