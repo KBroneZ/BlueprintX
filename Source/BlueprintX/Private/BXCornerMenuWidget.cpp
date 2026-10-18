@@ -134,6 +134,12 @@ void UBXCornerMenuWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaT
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
+	if (mThisCorner.IsStale())
+	{
+		// The marker was dismantled (by hand, or by /bx clear on the server).
+		CloseWindow();
+		return;
+	}
 	if (IsInGameUIStack())
 	{
 		mWasInGameUIStack = true;

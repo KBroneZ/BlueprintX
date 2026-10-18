@@ -44,6 +44,11 @@
 # Precompiled Assets
 SourceArt/**/*.png
 SourceArt/**/*.tga
+# ...except the mod icon (ficsit.app logo), which is part of the release
+!SourceArt/Icon/*.png
+
+# Personal save sound (third-party clip, D-007): never committed or shipped
+Content/Audio/Personal/
 
 # Binary Files
 Binaries/*
