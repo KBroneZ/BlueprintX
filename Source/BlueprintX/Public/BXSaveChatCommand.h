@@ -7,7 +7,7 @@
 #include "BXSaveChatCommand.generated.h"
 
 /**
- * Debug trigger until the marker window exists: "/bxsave <name> [height in m]".
+ * Debug trigger until the marker window exists: "/bxsave <name> [h=<height in m>]".
  * Uses the two corner markers nearest to the player. Chat commands run on the server; the
  * command goes through UBXRemoteCallObject so the answer reaches the player like the window's.
  */
