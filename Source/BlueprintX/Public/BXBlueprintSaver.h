@@ -41,6 +41,16 @@ struct BLUEPRINTX_API FBXSaveResult
 	static FBXSaveResult Fail(const FString& InMessage) { return {false, 0, InMessage}; }
 };
 
+struct BLUEPRINTX_API FBXCountResult
+{
+	bool bSuccess = false;
+	int32 NumBuildables = 0;
+	int32 NumExcluded = 0;
+	FString Message;
+
+	static FBXCountResult Fail(const FString& InMessage) { return {false, 0, 0, InMessage}; }
+};
+
 /**
  * Server side: collects everything between two corner markers and saves it as a blueprint,
  * with the same calls the vanilla Blueprint Designer uses (file, server manifest, descriptor).
@@ -50,4 +60,8 @@ class BLUEPRINTX_API FBXBlueprintSaver
 public:
 	static FBXSaveResult SaveArea(UWorld* World, ABXCornerMarker* CornerA, ABXCornerMarker* CornerB,
 		const FBXSaveRequest& Request);
+
+	/** Counts what SaveArea would save, without spawning or writing anything. */
+	static FBXCountResult CountArea(UWorld* World, ABXCornerMarker* CornerA, ABXCornerMarker* CornerB,
+		float ExtraHeight);
 };

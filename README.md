@@ -15,6 +15,11 @@ message limits.
   in all four directions (the box can grow from a corner either way).
 - **Save window** (0.4.0): interact (`E`) with a Corner, pick the other corner (nearest first),
   set the extra height, name and description, and save. A box outline shows the area.
+- **Building count** (0.6.0): the window shows how many buildings are inside the box before
+  saving. The server counts them; only the two marker references and the height travel.
+- **Adjust mode** (0.6.0): the Adjust button hides the window and gives control back while the
+  box stays visible. `Page Up` / `Page Down` change the extra height; `Y` or using one of the two
+  corners (`E`) brings the window back with the same values.
 - The server collects and saves the buildings; tested in single player and on a Linux
   dedicated server (1674 buildings in one blueprint, synced to other players).
 - Debug chat command: `/bxsave <name> [h=<metres>]` saves between the two nearest Corners.
