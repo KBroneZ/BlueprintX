@@ -34,12 +34,22 @@ namespace BXCornerMenu
 	const FMargin WindowPadding(18.0f);
 	const FMargin RowPadding(0.0f, 4.0f);
 	const FMargin ButtonGap(0.0f, 0.0f, 8.0f, 0.0f);
-	const FLinearColor BackgroundColor(0.02f, 0.02f, 0.03f, 0.94f);
+	const FLinearColor BackgroundColor(0.02f, 0.02f, 0.03f, 1.0f);
 	const FLinearColor TitleColor(0.98f, 0.55f, 0.1f);
 	const FLinearColor TextColor(0.9f, 0.9f, 0.9f);
+	const FLinearColor FieldTextColor = FLinearColor::Black;
 	const FLinearColor InfoColor(0.75f, 0.75f, 0.75f);
 	const FLinearColor SuccessColor(0.2f, 0.9f, 0.3f);
 	const FLinearColor ErrorColor(1.0f, 0.3f, 0.2f);
+}
+
+namespace
+{
+	UFGGameUI* FindGameUI(const APlayerController* Player)
+	{
+		const AFGHUD* HUD = Player != nullptr ? Cast<AFGHUD>(Player->GetHUD()) : nullptr;
+		return HUD != nullptr ? HUD->GetGameUI() : nullptr;
+	}
 }
 
 UBXCornerMenuWidget::UBXCornerMenuWidget(const FObjectInitializer& ObjectInitializer)
@@ -70,12 +80,29 @@ void UBXCornerMenuWidget::Init_Implementation()
 	}
 	if (UBXRemoteCallObject* RemoteCall = GetRemoteCall())
 	{
+		// Init may run more than once; never keep two bindings.
+		RemoteCall->OnCreateResult.Remove(mResultHandle);
 		mBoundRemoteCall = RemoteCall;
 		mResultHandle = RemoteCall->OnCreateResult.AddUObject(this, &UBXCornerMenuWidget::OnCreateResult);
 	}
 	RefreshCornerList();
 	RefreshPreview();
 	SetDefaultFocusWidget(mNameBox);
+}
+
+void UBXCornerMenuWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	if (IsInGameUIStack())
+	{
+		mWasInGameUIStack = true;
+	}
+	else if (mWasInGameUIStack)
+	{
+		// The game closed this window (Esc) but left it on screen.
+		CloseWindow();
+	}
 }
 
 void UBXCornerMenuWidget::NativeDestruct()
@@ -120,29 +147,14 @@ void UBXCornerMenuWidget::BuildLayout()
 	mCornerList->OnSelectionChanged.AddDynamic(this, &UBXCornerMenuWidget::OnCornerSelected);
 	Rows->AddChildToVerticalBox(mCornerList)->SetPadding(RowPadding);
 
-	AddLabel(Rows, TEXT("Extra height above the higher corner (m)"));
-	mHeightBox = WidgetTree->ConstructWidget<USpinBox>(USpinBox::StaticClass(), TEXT("Height"));
-	mHeightBox->SetMinValue(0.0f);
-	mHeightBox->SetMaxValue(FBXSaveRequest::MaxExtraHeight / CentimetersPerMeter);
-	mHeightBox->SetMinSliderValue(0.0f);
-	mHeightBox->SetMaxSliderValue(FBXSaveRequest::MaxExtraHeight / CentimetersPerMeter);
-	mHeightBox->SetDelta(1.0f);
-	mHeightBox->SetMaxFractionalDigits(0);
-	mHeightBox->SetValue(DefaultHeightMeters);
-	mHeightBox->OnValueChanged.AddDynamic(this, &UBXCornerMenuWidget::OnHeightChanged);
-	Rows->AddChildToVerticalBox(mHeightBox)->SetPadding(RowPadding);
-
+	AddHeightRow(Rows);
 	mBoxSizeText = AddLabel(Rows, FString());
 	mBoxSizeText->SetColorAndOpacity(FSlateColor(InfoColor));
 
 	AddLabel(Rows, TEXT("Name"));
-	mNameBox = WidgetTree->ConstructWidget<UEditableTextBox>(UEditableTextBox::StaticClass(), TEXT("Name"));
-	mNameBox->SetHintText(FText::FromString(TEXT("Blueprint name")));
-	Rows->AddChildToVerticalBox(mNameBox)->SetPadding(RowPadding);
-
+	mNameBox = AddTextBox(Rows, TEXT("Blueprint name"));
 	AddLabel(Rows, TEXT("Description (optional)"));
-	mDescriptionBox = WidgetTree->ConstructWidget<UEditableTextBox>(UEditableTextBox::StaticClass(), TEXT("Description"));
-	Rows->AddChildToVerticalBox(mDescriptionBox)->SetPadding(RowPadding);
+	mDescriptionBox = AddTextBox(Rows, FString());
 
 	UHorizontalBox* Buttons = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("Buttons"));
 	mSaveButton = MakeButton(TEXT("Save blueprint"));
@@ -154,6 +166,28 @@ void UBXCornerMenuWidget::BuildLayout()
 	Rows->AddChildToVerticalBox(Buttons)->SetPadding(FMargin(0.0f, 12.0f, 0.0f, 4.0f));
 
 	mStatusText = AddLabel(Rows, FString());
+}
+
+void UBXCornerMenuWidget::AddHeightRow(UVerticalBox* Parent)
+{
+	using namespace BXCornerMenu;
+
+	AddLabel(Parent, TEXT("Extra height above the higher corner (m)"));
+	mHeightBox = WidgetTree->ConstructWidget<USpinBox>(USpinBox::StaticClass(), TEXT("Height"));
+	mHeightBox->SetMinValue(0.0f);
+	mHeightBox->SetMaxValue(FBXSaveRequest::MaxExtraHeight / CentimetersPerMeter);
+	mHeightBox->SetMinSliderValue(0.0f);
+	mHeightBox->SetMaxSliderValue(FBXSaveRequest::MaxExtraHeight / CentimetersPerMeter);
+	mHeightBox->SetDelta(1.0f);
+	mHeightBox->SetMinFractionalDigits(0);
+	mHeightBox->SetMaxFractionalDigits(0);
+	mHeightBox->SetValue(DefaultHeightMeters);
+	FSlateFontInfo Font = mHeightBox->GetFont();
+	Font.Size = TextFontSize;
+	mHeightBox->SetFont(Font);
+	mHeightBox->SetForegroundColor(FSlateColor(FieldTextColor));
+	mHeightBox->OnValueChanged.AddDynamic(this, &UBXCornerMenuWidget::OnHeightChanged);
+	Parent->AddChildToVerticalBox(mHeightBox)->SetPadding(RowPadding);
 }
 
 UTextBlock* UBXCornerMenuWidget::AddLabel(UVerticalBox* Parent, const FString& Text)
@@ -169,6 +203,17 @@ UTextBlock* UBXCornerMenuWidget::AddLabel(UVerticalBox* Parent, const FString& T
 	return Label;
 }
 
+UEditableTextBox* UBXCornerMenuWidget::AddTextBox(UVerticalBox* Parent, const FString& Hint)
+{
+	UEditableTextBox* Box = WidgetTree->ConstructWidget<UEditableTextBox>(UEditableTextBox::StaticClass());
+	// The style must be set before the Slate widget exists; BuildLayout runs before that.
+	Box->WidgetStyle.TextStyle.Font.Size = BXCornerMenu::TextFontSize;
+	Box->SetForegroundColor(BXCornerMenu::FieldTextColor);
+	Box->SetHintText(FText::FromString(Hint));
+	Parent->AddChildToVerticalBox(Box)->SetPadding(BXCornerMenu::RowPadding);
+	return Box;
+}
+
 UButton* UBXCornerMenuWidget::MakeButton(const FString& Text)
 {
 	UButton* Button = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass());
@@ -176,7 +221,7 @@ UButton* UBXCornerMenuWidget::MakeButton(const FString& Text)
 	FSlateFontInfo Font = Label->GetFont();
 	Font.Size = BXCornerMenu::TextFontSize;
 	Label->SetFont(Font);
-	Label->SetColorAndOpacity(FSlateColor(FLinearColor::Black));
+	Label->SetColorAndOpacity(FSlateColor(BXCornerMenu::FieldTextColor));
 	Label->SetText(FText::FromString(Text));
 	Button->AddChild(Label);
 	return Button;
@@ -279,6 +324,24 @@ UBXRemoteCallObject* UBXCornerMenuWidget::GetRemoteCall() const
 	return Player != nullptr ? Player->GetRemoteCallObjectOfClass<UBXRemoteCallObject>() : nullptr;
 }
 
+bool UBXCornerMenuWidget::IsInGameUIStack()
+{
+	UFGGameUI* GameUI = FindGameUI(GetOwningPlayer());
+	return GameUI != nullptr && GameUI->GetInteractWidgetStack().Contains(this);
+}
+
+void UBXCornerMenuWidget::CloseWindow()
+{
+	UFGGameUI* GameUI = FindGameUI(GetOwningPlayer());
+	if (GameUI != nullptr && IsInGameUIStack())
+	{
+		// Gives the player back movement and the mouse, like Esc does.
+		GameUI->RemoveInteractWidget(this);
+	}
+	mWasInGameUIStack = false;
+	RemoveFromParent();
+}
+
 void UBXCornerMenuWidget::OnCornerSelected(FString SelectedItem, ESelectInfo::Type SelectionType)
 {
 	RefreshPreview();
@@ -299,8 +362,8 @@ void UBXCornerMenuWidget::OnSaveClicked()
 		return;
 	}
 	FBXSaveRequest Request;
-	Request.BlueprintName = mNameBox->GetText().ToString().TrimStartAndEnd();
-	Request.Description = mDescriptionBox->GetText().ToString().TrimStartAndEnd();
+	Request.BlueprintName = mNameBox->GetText().ToString().TrimStartAndEnd().Left(FBXSaveRequest::MaxNameLength);
+	Request.Description = mDescriptionBox->GetText().ToString().TrimStartAndEnd().Left(FBXSaveRequest::MaxDescriptionLength);
 	Request.ExtraHeight = mHeightBox->GetValue() * BXCornerMenu::CentimetersPerMeter;
 	if (Request.BlueprintName.IsEmpty())
 	{
@@ -322,14 +385,7 @@ void UBXCornerMenuWidget::OnSaveClicked()
 
 void UBXCornerMenuWidget::OnCloseClicked()
 {
-	const AFGHUD* HUD = GetOwningPlayer() != nullptr ? Cast<AFGHUD>(GetOwningPlayer()->GetHUD()) : nullptr;
-	if (HUD != nullptr && HUD->GetGameUI() != nullptr)
-	{
-		HUD->GetGameUI()->RemoveInteractWidget(this);
-		return;
-	}
-	UE_LOG(LogBlueprintX, Warning, TEXT("Window: game UI not found, removing the window directly."));
-	RemoveFromParent();
+	CloseWindow();
 }
 
 void UBXCornerMenuWidget::OnCreateResult(bool bSuccess, int32 NumBuildables, const FString& Message)

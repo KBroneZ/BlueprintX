@@ -1,8 +1,8 @@
 {
 	"FileVersion": 3,
-	"Version": 4,
-	"VersionName": "0.4.0",
-	"SemVersion": "0.4.0",
+	"Version": 5,
+	"VersionName": "0.4.1",
+	"SemVersion": "0.4.1",
 	"GameVersion": ">=513885",
 	"FriendlyName": "Blueprint-X",
 	"Description": "Create a blueprint from any area: place two corner markers and save everything between them. Works on dedicated servers.",

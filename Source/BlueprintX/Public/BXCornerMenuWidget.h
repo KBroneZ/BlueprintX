@@ -36,12 +36,20 @@ public:
 
 protected:
 	virtual void NativeOnInitialized() override;
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 	virtual void NativeDestruct() override;
 
 private:
 	void BuildLayout();
+	void AddHeightRow(UVerticalBox* Parent);
 	UTextBlock* AddLabel(UVerticalBox* Parent, const FString& Text);
+	UEditableTextBox* AddTextBox(UVerticalBox* Parent, const FString& Hint);
 	UButton* MakeButton(const FString& Text);
+
+	/** The game UI pops interact widgets from its stack (Esc) but only removes Blueprint
+	 *  windows from the screen, so this C++ window removes itself once it left the stack. */
+	bool IsInGameUIStack();
+	void CloseWindow();
 
 	/** Fills the corner list with every other marker this client knows, nearest first. */
 	void RefreshCornerList();
@@ -98,4 +106,7 @@ private:
 
 	TWeakObjectPtr<UBXRemoteCallObject> mBoundRemoteCall;
 	FDelegateHandle mResultHandle;
+
+	/** Set once the game UI has pushed this window onto its interact widget stack. */
+	bool mWasInGameUIStack = false;
 };

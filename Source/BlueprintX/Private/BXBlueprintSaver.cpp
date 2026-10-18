@@ -19,7 +19,7 @@ namespace BXSaver
 
 	constexpr float BelowMargin = FBXArea::DefaultBelowMargin;
 
-	constexpr int32 MaxNameLength = 64;
+	constexpr int32 MaxNameLength = FBXSaveRequest::MaxNameLength;
 
 	// Sanity limits so one request cannot make the server walk the whole map in one frame.
 	constexpr float MaxExtraHeight = FBXSaveRequest::MaxExtraHeight;
@@ -126,7 +126,7 @@ FBXSaveResult FBXBlueprintSaver::SaveArea(UWorld* World, ABXCornerMarker* Corner
 
 	FBlueprintRecord Record;
 	Record.BlueprintName = SafeName;
-	Record.BlueprintDescription = Request.Description.Left(1024);
+	Record.BlueprintDescription = Request.Description.Left(FBXSaveRequest::MaxDescriptionLength);
 	BlueprintSubsystem->AssignCategoryAndSubcategoryToBlueprintRecord(Record);
 
 	// Writes the .sbp/.sbpcfg files and updates the server manifest (clients download from it).
