@@ -2,6 +2,7 @@
 
 #include "BXCornerMarker.h"
 
+#include "BXCornerMenuWidget.h"
 #include "FGColoredInstanceMeshProxy.h"
 #include "Hologram/FGBuildableHologram.h"
 
@@ -24,6 +25,10 @@ ABXCornerMarker::ABXCornerMarker()
 	// FactoryGame leaves this empty on AFGBuildable; without it the build gun cannot place the marker.
 	mHologramClass = AFGBuildableHologram::StaticClass();
 
+	// Interacting (E) opens the Blueprint-X window; the widget is pure C++, so no asset path is needed.
+	mIsUseable = true;
+	mInteractWidgetSoftClass = UBXCornerMenuWidget::StaticClass();
+
 	mBaseMesh = CreateDefaultSubobject<UFGColoredInstanceMeshProxy>(TEXT("BaseMesh"));
 	mBaseMesh->SetupAttachment(RootComponent);
 	mBaseMesh->SetMobility(EComponentMobility::Static);
@@ -41,4 +46,14 @@ ABXCornerMarker::ABXCornerMarker()
 		FVector(-BaseWidth * 0.5f, -BaseWidth * 0.5f, ClearanceGap),
 		FVector(BaseWidth * 0.5f, BaseWidth * 0.5f, BaseHeight + PoleHeight));
 	mClearanceData.Add(Clearance);
+}
+
+UStaticMesh* ABXCornerMarker::GetMarkerMesh() const
+{
+	return mBaseMesh != nullptr ? mBaseMesh->GetStaticMesh() : nullptr;
+}
+
+UMaterialInterface* ABXCornerMarker::GetMarkerMaterial() const
+{
+	return mBaseMesh != nullptr ? mBaseMesh->GetMaterial(0) : nullptr;
 }

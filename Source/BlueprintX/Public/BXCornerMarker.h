@@ -27,6 +27,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Blueprint-X")
 	FVector GetCornerLocation() const { return GetActorLocation(); }
 
+	/** Mesh and material of the base plate (a 1 m cube), reused by the box preview. */
+	UStaticMesh* GetMarkerMesh() const;
+	UMaterialInterface* GetMarkerMaterial() const;
+
 protected:
 	/** Flat base plate that sits on the ground or foundation. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Blueprint-X")

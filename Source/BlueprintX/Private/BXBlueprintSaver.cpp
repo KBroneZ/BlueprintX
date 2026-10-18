@@ -17,14 +17,12 @@ namespace BXSaver
 	// (designer size = mDimensions * 800).
 	constexpr double CellSize = 800.0;
 
-	// Foundations have their pivot half way up, so the box reaches below the markers far enough
-	// to catch the floor they stand on (half of the tallest 4 m foundation).
-	constexpr float BelowMargin = 200.0f;
+	constexpr float BelowMargin = FBXArea::DefaultBelowMargin;
 
-	constexpr int32 MaxNameLength = 64;
+	constexpr int32 MaxNameLength = FBXSaveRequest::MaxNameLength;
 
 	// Sanity limits so one request cannot make the server walk the whole map in one frame.
-	constexpr float MaxExtraHeight = 200.0f * 100.0f;
+	constexpr float MaxExtraHeight = FBXSaveRequest::MaxExtraHeight;
 	constexpr double MaxSideLength = 1200.0 * 100.0;
 	const TCHAR* const FileExtension = TEXT(".sbp");
 }
@@ -128,7 +126,7 @@ FBXSaveResult FBXBlueprintSaver::SaveArea(UWorld* World, ABXCornerMarker* Corner
 
 	FBlueprintRecord Record;
 	Record.BlueprintName = SafeName;
-	Record.BlueprintDescription = Request.Description.Left(1024);
+	Record.BlueprintDescription = Request.Description.Left(FBXSaveRequest::MaxDescriptionLength);
 	BlueprintSubsystem->AssignCategoryAndSubcategoryToBlueprintRecord(Record);
 
 	// Writes the .sbp/.sbpcfg files and updates the server manifest (clients download from it).

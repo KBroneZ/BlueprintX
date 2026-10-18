@@ -12,6 +12,10 @@ class UWorld;
 /** Box between two corner markers, in the local frame of corner A (yaw only). */
 struct BLUEPRINTX_API FBXArea
 {
+	/** Foundations have their pivot half way up, so the box reaches below the markers far enough
+	 *  to catch the floor they stand on (half of the tallest 4 m foundation). */
+	static constexpr float DefaultBelowMargin = 200.0f;
+
 	/** Corner A location with corner A's yaw. LocalBox is expressed in this frame. */
 	FTransform Frame;
 
