@@ -39,6 +39,7 @@ void UBXRemoteCallObject::Client_CreateResult_Implementation(bool bSuccess, int3
 {
 	UE_LOG(LogBlueprintX, Display, TEXT("Save result: %s (%d buildings) %s"),
 		bSuccess ? TEXT("OK") : TEXT("FAILED"), NumBuildables, *Message);
+	OnCreateResult.Broadcast(bSuccess, NumBuildables, Message);
 
 	AFGChatManager* ChatManager = AFGChatManager::Get(GetWorld());
 	if (ChatManager == nullptr)

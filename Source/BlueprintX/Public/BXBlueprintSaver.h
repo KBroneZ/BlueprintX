@@ -14,6 +14,9 @@ struct BLUEPRINTX_API FBXSaveRequest
 {
 	GENERATED_BODY()
 
+	/** Highest ExtraHeight the server accepts (cm); keeps one request from walking the whole map. */
+	static constexpr float MaxExtraHeight = 200.0f * 100.0f;
+
 	UPROPERTY(BlueprintReadWrite, Category = "Blueprint-X")
 	FString BlueprintName;
 

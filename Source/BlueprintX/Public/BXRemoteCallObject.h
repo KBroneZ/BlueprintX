@@ -9,6 +9,9 @@
 
 class ABXCornerMarker;
 
+/** Client side: the server answered a save request (bSuccess, NumBuildables, Message). */
+DECLARE_MULTICAST_DELEGATE_ThreeParams(FBXOnCreateResult, bool, int32, const FString&);
+
 /**
  * Client <-> server calls for Blueprint-X. The client only sends two marker references and the
  * request text (a few hundred bytes), so the 64 KB RPC limit can never be reached (bug 001).
@@ -29,6 +32,9 @@ public:
 	/** Server answer to Server_CreateBlueprint. */
 	UFUNCTION(Client, Reliable)
 	void Client_CreateResult(bool bSuccess, int32 NumBuildables, const FString& Message);
+
+	/** Broadcast on the client when Client_CreateResult arrives (the marker window listens). */
+	FBXOnCreateResult OnCreateResult;
 
 	/** RCOs need at least one replicated property to get a net channel. */
 	UPROPERTY(Replicated, Meta = (NoAutoJson))
