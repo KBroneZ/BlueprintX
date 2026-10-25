@@ -566,7 +566,7 @@ void UBXCornerMenuWidget::OnCountResult(int32 RequestId, int32 NumBuildables, in
 		Text = FString::Printf(TEXT("Buildings inside: %d"), NumBuildables);
 		if (NumExcluded > 0)
 		{
-			Text += FString::Printf(TEXT(" (%d more can never be in a blueprint: HUB, elevators, designers...)"), NumExcluded);
+			Text += FString::Printf(TEXT(" (%d left out: HUB, elevators, designers, wires leaving the box...)"), NumExcluded);
 		}
 	}
 	mCountText->SetText(FText::FromString(Text));

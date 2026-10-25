@@ -60,11 +60,16 @@ struct FBXAreaCount
 	/** Buildables a save of this area would contain. */
 	int32 NumBuildables = 0;
 
-	/** Buildables inside that a blueprint never contains (markers, HUB, elevators, ...). */
+	/** Buildables inside that a blueprint never contains (markers, HUB, elevators, ...), plus wires,
+	 *  railroad switch controls and signals that link to something outside the box (bug 002). */
 	int32 NumExcluded = 0;
 };
 
-/** Server-side helper: finds every buildable whose pivot is inside an area. */
+/**
+ * Server-side helper: finds every buildable whose pivot is inside an area. The selection is closed
+ * (bug 002): a wire, railroad switch control or signal is only taken when everything it links is
+ * taken too.
+ */
 class BLUEPRINTX_API FBXAreaCollector
 {
 public:
