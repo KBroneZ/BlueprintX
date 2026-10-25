@@ -5,6 +5,7 @@
 #include "BlueprintX.h"
 #include "BXAreaCollector.h"
 #include "BXCornerMarker.h"
+#include "BXOutsideReferenceCut.h"
 #include "Buildables/FGBuildableFoundation.h"
 #include "FGBlueprintSubsystem.h"
 #include "HAL/FileManager.h"
@@ -140,7 +141,17 @@ FBXSaveResult FBXBlueprintSaver::SaveArea(UWorld* World, ABXCornerMarker* Corner
 	BlueprintSubsystem->AssignCategoryAndSubcategoryToBlueprintRecord(Record);
 
 	// Writes the .sbp/.sbpcfg files and updates the server manifest (clients download from it).
-	FBlueprintHeader Header = BlueprintSubsystem->WriteBlueprintToArchive(Record, Origin, Collection.Buildables, Dimensions);
+	// References that leave the collected set are hidden while writing (bug 002) and come back
+	// when the cut goes out of scope, before anything else runs.
+	FBlueprintHeader Header;
+	int32 NumCutReferences = 0;
+	FString CutSummary;
+	{
+		const FBXOutsideReferenceCut OutsideCut(World, Collection.Buildables);
+		NumCutReferences = OutsideCut.GetNumCut();
+		CutSummary = OutsideCut.DescribeCut();
+		Header = BlueprintSubsystem->WriteBlueprintToArchive(Record, Origin, Collection.Buildables, Dimensions);
+	}
 	const int32 NumSaved = Collection.Buildables.Num();
 	const int32 NumLightweights = Collection.NumLightweights;
 	const int32 NumExcluded = Collection.NumExcluded;
@@ -162,6 +173,8 @@ FBXSaveResult FBXBlueprintSaver::SaveArea(UWorld* World, ABXCornerMarker* Corner
 		TEXT("Saved blueprint '%s': %d buildables (%d lightweight, %d excluded), dimensions %s, origin %s, file %s (%lld bytes), %.1f ms."),
 		*SafeName, NumSaved, NumLightweights, NumExcluded, *Dimensions.ToString(), *Origin.GetLocation().ToString(),
 		*FilePath, IFileManager::Get().FileSize(*FilePath), (FPlatformTime::Seconds() - StartSeconds) * 1000.0);
+	UE_LOG(LogBlueprintX, Display, TEXT("Blueprint '%s': %d references to things outside the box saved as not connected%s%s"),
+		*SafeName, NumCutReferences, CutSummary.IsEmpty() ? TEXT(".") : TEXT(": "), *CutSummary);
 
 	return {true, NumSaved, FString::Printf(TEXT("Blueprint saved: \"%s\", %d buildings."), *SafeName, NumSaved)};
 }

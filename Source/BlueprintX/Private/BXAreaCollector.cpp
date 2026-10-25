@@ -8,8 +8,12 @@
 #include "Buildables/FGBuildableElevator.h"
 #include "Buildables/FGBuildableElevatorFloorStop.h"
 #include "Buildables/FGBuildableHubTerminal.h"
+#include "Buildables/FGBuildableRailroadSignal.h"
+#include "Buildables/FGBuildableRailroadSwitchControl.h"
 #include "Buildables/FGBuildableSpaceElevator.h"
 #include "Buildables/FGBuildableTradingPost.h"
+#include "Buildables/FGBuildableWire.h"
+#include "FGRailroadTrackConnectionComponent.h"
 #include "FGBlueprintSubsystem.h"
 #include "FGBuildableSubsystem.h"
 #include "FGLightweightBuildableBlueprintLibrary.h"
@@ -164,12 +168,72 @@ namespace
 	}
 }
 
+namespace
+{
+	bool IsSavedComponent(const UActorComponent* Component, const TSet<const AActor*>& Saved)
+	{
+		return Component != nullptr && Saved.Contains(Component->GetOwner());
+	}
+
+	/** Null entries are allowed (the game tolerates them in these lists); outside ones are not. */
+	template <typename FComponentArray>
+	bool AreAllSavedOrNull(const FComponentArray& Components, const TSet<const AActor*>& Saved)
+	{
+		for (const UActorComponent* Component : Components)
+		{
+			if (Component != nullptr && !Saved.Contains(Component->GetOwner()))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/** False for a buildable that only exists to link others (wire, railroad switch control,
+	 *  signal) when something it links is not saved: it would point outside the blueprint. */
+	bool DoLinksStayInside(const AFGBuildable* Buildable, const TSet<const AActor*>& Saved)
+	{
+		if (const AFGBuildableWire* Wire = Cast<AFGBuildableWire>(Buildable))
+		{
+			return IsSavedComponent(Wire->GetConnection(0), Saved) && IsSavedComponent(Wire->GetConnection(1), Saved);
+		}
+		if (const AFGBuildableRailroadSwitchControl* SwitchControl = Cast<AFGBuildableRailroadSwitchControl>(Buildable))
+		{
+			return AreAllSavedOrNull(SwitchControl->GetControlledConnections(), Saved);
+		}
+		if (const AFGBuildableRailroadSignal* Signal = Cast<AFGBuildableRailroadSignal>(Buildable))
+		{
+			return AreAllSavedOrNull(Signal->GetGuardedConnections(), Saved)
+				&& AreAllSavedOrNull(Signal->GetObservedConnections(), Saved);
+		}
+		return true;
+	}
+
+	/** Bug 002: keeps the selection closed (a pole on the box edge keeps only the wires that stay
+	 *  inside). Returns how many buildables were removed. */
+	int32 RemoveOpenLinks(TArray<AFGBuildable*>& Buildables)
+	{
+		TSet<const AActor*> Saved;
+		Saved.Reserve(Buildables.Num());
+		for (const AFGBuildable* Buildable : Buildables)
+		{
+			Saved.Add(Buildable);
+		}
+		// Links never link other links, so one pass is enough.
+		return Buildables.RemoveAll([&Saved](const AFGBuildable* Buildable) { return !DoLinksStayInside(Buildable, Saved); });
+	}
+}
+
 FBXAreaCount FBXAreaCollector::Count(UWorld* World, const FBXArea& Area)
 {
 	FBXAreaCount Result;
+	TArray<AFGBuildable*> Actors;
 	Result.NumExcluded = VisitArea(World, Area,
-		[&Result](AFGBuildable*) { ++Result.NumBuildables; },
+		[&Actors](AFGBuildable* Buildable) { Actors.Add(Buildable); },
 		[&Result](TSubclassOf<AFGBuildable>, int32) { ++Result.NumBuildables; });
+	// Lightweights have no connections, so the actors alone decide which links stay.
+	Result.NumExcluded += RemoveOpenLinks(Actors);
+	Result.NumBuildables += Actors.Num();
 	return Result;
 }
 
@@ -187,6 +251,7 @@ FBXCollection FBXAreaCollector::Collect(UWorld* World, const FBXArea& Area)
 	AFGLightweightBuildableSubsystem* LightweightSubsystem = AFGLightweightBuildableSubsystem::Get(World);
 	if (LightweightSubsystem == nullptr)
 	{
+		Result.NumExcluded += RemoveOpenLinks(Result.Buildables);
 		return Result;
 	}
 	for (const FBXSpawnedTemporary& Pick : Picked)
@@ -209,6 +274,7 @@ FBXCollection FBXAreaCollector::Collect(UWorld* World, const FBXArea& Area)
 		Result.Buildables.Add(Temporary);
 		++Result.NumLightweights;
 	}
+	Result.NumExcluded += RemoveOpenLinks(Result.Buildables);
 	return Result;
 }
 
